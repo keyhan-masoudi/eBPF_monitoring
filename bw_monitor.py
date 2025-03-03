@@ -12,7 +12,7 @@ print("Waiting for fio to start...")
 fio_cmd = [
     "fio",
     "--name=test",
-    "--filename=/dev/sda",
+    "--filename=/dev/sdb",
     "--size=1G",
     "--rw=randrw",
     "--bs=4k",
@@ -25,10 +25,21 @@ fio_cmd = [
     "--ioengine=libaio"
 ]
 
-# Run fio as a subprocess
-fio_process = subprocess.Popen(fio_cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+# Open file to store fio output
+with open("fio_output.txt", "w") as fio_out, open("fio_error.txt", "w") as fio_err:
+    # Run fio as a subprocess and save output
+    fio_process = subprocess.Popen(fio_cmd, stdout=fio_out, stderr=fio_err)
 
 print("fio started, monitoring I/O...")
+
+# Get fio's PID and pass it to eBPF
+fio_pid = fio_process.pid
+bpf["target_pid"] = ctypes.c_uint(fio_pid)
+
+# Initialize BPF maps
+io_bytes = bpf["io_bytes"]
+io_bytes[ctypes.c_uint(0)] = ctypes.c_ulonglong(0)  # Read counter
+io_bytes[ctypes.c_uint(1)] = ctypes.c_ulonglong(0)  # Write counter
 
 # Monitor I/O while fio is running
 try:
@@ -38,10 +49,11 @@ try:
     print("fio completed, calculating Read/Write bandwidth ratio...")
 
     # Read total bytes from eBPF maps
-    io_bytes = bpf["io_bytes"]
-
     read_bytes = io_bytes[ctypes.c_uint(0)].value if ctypes.c_uint(0) in io_bytes else 0
     write_bytes = io_bytes[ctypes.c_uint(1)].value if ctypes.c_uint(1) in io_bytes else 0
+
+    # Debug output
+    print(f"Raw Bytes Counted: Reads = {read_bytes} B, Writes = {write_bytes} B")
 
     read_bw = read_bytes / 10 / (1024 * 1024)  # Convert to MB/s
     write_bw = write_bytes / 10 / (1024 * 1024)  # Convert to MB/s
@@ -53,7 +65,7 @@ try:
     print(f"\nFinal Bandwidth: Reads = {read_bw:.2f} MB/s, Writes = {write_bw:.2f} MB/s")
     print(f"Read/Write Bandwidth Ratio: {rw_bw_ratio:.2f}")
 
-    # Save results to file
+    # Save bandwidth results to a file
     with open("rw_bw_ratio_results.txt", "w") as f:
         f.write(f"Read Bandwidth: {read_bw:.2f} MB/s\n")
         f.write(f"Write Bandwidth: {write_bw:.2f} MB/s\n")
