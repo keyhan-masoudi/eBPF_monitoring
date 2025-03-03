@@ -12,7 +12,7 @@ print("Waiting for fio to start...")
 fio_cmd = [
     "fio",
     "--name=test",
-    "--filename=/dev/sda",
+    "--filename=/dev/sdb",
     "--size=1G",
     "--rw=randrw",
     "--bs=4k,2k",
@@ -24,9 +24,11 @@ fio_cmd = [
     "--group_reporting",
     "--ioengine=libaio"
 ]
+# Open a file to store fio output
+with open("fio_output.txt", "w") as fio_out, open("fio_error.txt", "w") as fio_err:
+    # Run fio as a subprocess and redirect output to files
+    fio_process = subprocess.Popen(fio_cmd, stdout=fio_out, stderr=fio_err)
 
-# Run fio as a subprocess
-fio_process = subprocess.Popen(fio_cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
 
 print("fio started, monitoring I/O...")
 
@@ -54,10 +56,10 @@ try:
     # Print final results
     print(f"\nFinal Average Block Size: Reads = {avg_block_size_read:.2f} bytes, Writes = {avg_block_size_write:.2f} bytes")
 
-    # Save results to file
-    with open("avg_block_size_results.txt", "w") as f:
-        f.write(f"Average Block Size (Read): {avg_block_size_read:.2f} bytes\n")
-        f.write(f"Average Block Size (Write): {avg_block_size_write:.2f} bytes\n")
+    # # Save results to file
+    # with open("avg_block_size_results.txt", "w") as f:
+    #     f.write(f"Average Block Size (Read): {avg_block_size_read:.2f} bytes\n")
+    #     f.write(f"Average Block Size (Write): {avg_block_size_write:.2f} bytes\n")
 
     print(f"Average Block Size results saved to avg_block_size_results.txt")
 
