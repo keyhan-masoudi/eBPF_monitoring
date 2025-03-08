@@ -65,11 +65,5 @@ try:
     print(f"\nFinal Bandwidth: Reads = {read_bw:.2f} MB/s, Writes = {write_bw:.2f} MB/s")
     print(f"Read/Write Bandwidth Ratio: {rw_bw_ratio:.2f}")
 
-    # Save bandwidth results to a file
-    with open("rw_bw_ratio_results.txt", "w") as f:
-        f.write(f"Read Bandwidth: {read_bw:.2f} MB/s\n")
-        f.write(f"Write Bandwidth: {write_bw:.2f} MB/s\n")
-        f.write(f"Read/Write Bandwidth Ratio: {rw_bw_ratio:.2f}\n")
-
 except KeyboardInterrupt:
     print("Monitoring interrupted, stopping.")
