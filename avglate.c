@@ -1,40 +1,45 @@
 #include <uapi/linux/ptrace.h>
 #include <linux/blkdev.h>
 
-BPF_HASH(start_time, u64, u64);  // Store issue timestamps
-BPF_HISTOGRAM(latency_hist_read);  // Latency histogram for reads
-BPF_HISTOGRAM(latency_hist_write); // Latency histogram for writes
-BPF_HASH(total_latency, u32, u64); // Store total latency for avg calculation
-BPF_HASH(io_count, u32, u64); // Store I/O count for avg calculation
+struct io_latency_event {  // Rename struct to avoid conflict
+    u32 pid;
+    u32 type;
+    u64 latency;
+};
 
-// Trace block request issue
+BPF_PERF_OUTPUT(events);
+BPF_HASH(start_time, u64, u64);
+BPF_HASH(target_pid, u32, u32);
+
 TRACEPOINT_PROBE(block, block_rq_issue) {
-    u64 pid_tgid = bpf_get_current_pid_tgid();
+    u32 pid = bpf_get_current_pid_tgid() >> 32;
+    u32 *monitored_pid = target_pid.lookup(&pid);
+    if (!monitored_pid) return 0;
+
     u64 ts = bpf_ktime_get_ns();
-    start_time.update(&pid_tgid, &ts);
+    u64 key = args->sector;
+    start_time.update(&key, &ts);
     return 0;
 }
 
-// Trace block request completion
 TRACEPOINT_PROBE(block, block_rq_complete) {
-    u64 pid_tgid = bpf_get_current_pid_tgid();
-    u64 *tsp = start_time.lookup(&pid_tgid);
-    
-    if (tsp) {
-        u64 delta = bpf_ktime_get_ns() - *tsp;
-        u32 type = (args->rwbs[0] == 'R') ? 0 : 1; // 'R' for read, else write
+    u32 pid = bpf_get_current_pid_tgid() >> 32;
+    u32 *monitored_pid = target_pid.lookup(&pid);
+    if (!monitored_pid) return 0;
 
-        // Store latency histogram
-        if (type == 0)
-            latency_hist_read.increment(bpf_log2l(delta / 1000)); // Convert to us
-        else
-            latency_hist_write.increment(bpf_log2l(delta / 1000));
+    u64 key = args->sector;
+    u64 *tsp = start_time.lookup(&key);
+    if (!tsp) return 0;
 
-        // Store total latency for avg calculation
-        total_latency.increment(type, delta);
-        io_count.increment(type);
+    u64 delta = bpf_ktime_get_ns() - *tsp;
+    u64 delta_us = delta / 1000;
 
-        start_time.delete(&pid_tgid);
-    }
+    struct io_latency_event event = {};  // Use renamed struct
+    event.pid = pid;
+    event.type = (args->rwbs[0] == 'R') ? 0 : 1;
+    event.latency = delta_us;
+
+    events.perf_submit(args, &event, sizeof(event));
+    start_time.delete(&key);
     return 0;
 }

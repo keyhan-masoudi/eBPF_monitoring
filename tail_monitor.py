@@ -3,7 +3,7 @@ import time
 import subprocess
 
 # Configurable percentile for tail latency
-TAIL_LATENCY_PERCENTILE = 80  # Set your desired percentile (e.g., 99)
+TAIL_LATENCY_PERCENTILE = 95  # Set your desired percentile (e.g., 99)
 
 # Load the eBPF program
 bpf = BPF(src_file="tail.c", cflags=["-Wno-macro-redefined"])
@@ -14,7 +14,7 @@ print(f"Waiting for fio to start... (Monitoring {TAIL_LATENCY_PERCENTILE}th perc
 fio_cmd = [
     "fio",
     "--name=test",
-    "--filename=/dev/sda",
+    "--filename=/dev/sdb",
     "--size=1G",
     "--rw=randrw",
     "--bs=4k",
@@ -27,8 +27,9 @@ fio_cmd = [
     "--ioengine=libaio"
 ]
 
-# Run fio as a subprocess
-fio_process = subprocess.Popen(fio_cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+# Open files to store fio output
+with open("fio_output.txt", "w") as fio_out, open("fio_error.txt", "w") as fio_err:
+    fio_process = subprocess.Popen(fio_cmd, stdout=fio_out, stderr=fio_err)
 
 print("fio started, monitoring I/O...")
 
@@ -59,9 +60,6 @@ try:
     print(f"\nTail Latency (Read {TAIL_LATENCY_PERCENTILE}%): {tail_latency_read:.2f} us")
     print(f"Tail Latency (Write {TAIL_LATENCY_PERCENTILE}%): {tail_latency_write:.2f} us")
     
-    with open("tail_latency_results.txt", "w") as f:
-        f.write(f"Tail Latency (Read {TAIL_LATENCY_PERCENTILE}%): {tail_latency_read:.2f} us\n")
-        f.write(f"Tail Latency (Write {TAIL_LATENCY_PERCENTILE}%): {tail_latency_write:.2f} us\n")
 
 except KeyboardInterrupt:
     print("Monitoring interrupted, stopping.")

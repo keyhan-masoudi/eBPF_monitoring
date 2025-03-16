@@ -19,8 +19,8 @@ fio_cmd = [
     "--direct=1",
     "--numjobs=1",
     "--time_based",
-    "--runtime=10",
-    "--rwmixread=60",
+    "--runtime=20",
+    "--rwmixread=50",
     "--group_reporting",
     "--ioengine=libaio"
 ]
@@ -48,7 +48,7 @@ try:
     read_ops = io_type_count[ctypes.c_uint(0)].value if ctypes.c_uint(0) in io_type_count else 0
     write_ops = io_type_count[ctypes.c_uint(1)].value if ctypes.c_uint(1) in io_type_count else 0
 
-    runtime = 10  # Your fio runtime in seconds
+    runtime = 20  # Your fio runtime in seconds
 
 # Normalize eBPF counts to get IOPS
     read_iops = read_ops / runtime

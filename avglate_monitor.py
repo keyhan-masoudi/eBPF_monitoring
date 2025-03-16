@@ -1,64 +1,64 @@
 from bcc import BPF
+import ctypes
 import time
 import subprocess
-import ctypes  # <-- Add this import
+import psutil  # Get process PID
 
-# Load the eBPF program
+# Load eBPF program
 bpf = BPF(src_file="avglate.c", cflags=["-Wno-macro-redefined"])
 
-print("Waiting for fio to start...")
+def print_event(cpu, data, size):
+    event = bpf["events"].event(data)
+    print(f"Captured I/O: PID={event.pid}, Type={'Read' if event.type == 0 else 'Write'}, Latency={event.latency} us")
 
-# Define the fio command
+bpf["events"].open_perf_buffer(print_event)
+
+# Start fio process
 fio_cmd = [
     "fio",
     "--name=test",
-    "--filename=/dev/sda",
+    "--filename=/dev/sdb",
     "--size=1G",
     "--rw=randrw",
     "--bs=4k",
     "--direct=1",
     "--numjobs=1",
     "--time_based",
-    "--runtime=10",
-    "--rate=2048k",
-    "--rwmixread=70",
+    "--runtime=20",
+    "--rwmixread=50",
     "--group_reporting",
     "--ioengine=libaio"
 ]
 
-# Run fio as a subprocess
-fio_process = subprocess.Popen(fio_cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+with open("fio_output.txt", "w") as fio_out, open("fio_error.txt", "w") as fio_err:
+    fio_process = subprocess.Popen(fio_cmd, stdout=fio_out, stderr=fio_err)
 
-print("fio started, monitoring I/O...")
+time.sleep(2)
+
+# Get fio's PID
+fio_pid = None
+for proc in psutil.process_iter(attrs=["pid", "name"]):
+    if "fio" in proc.info["name"]:
+        fio_pid = proc.info["pid"]
+        break
+
+if fio_pid is None:
+    print("Failed to get fio PID!")
+    fio_process.terminate()
+    exit(1)
+
+print(f"Monitoring fio (PID: {fio_pid})...")
+
+# Store fio PID in eBPF map
+bpf["target_pid"][ctypes.c_uint(fio_pid)] = ctypes.c_uint(fio_pid)
 
 # Monitor while fio is running
 try:
     while fio_process.poll() is None:
+        bpf.perf_buffer_poll()
         time.sleep(1)
 
-    print("fio completed, calculating final metrics...")
-
-    # Read final IOPS
-    io_type_count = bpf["io_count"]
-    total_latency = bpf["total_latency"]
-
-    read_ops = io_type_count[ctypes.c_uint(0)].value if ctypes.c_uint(0) in io_type_count else 0
-    write_ops = io_type_count[ctypes.c_uint(1)].value if ctypes.c_uint(1) in io_type_count else 0
-
-    read_latency = total_latency[ctypes.c_uint(0)].value if ctypes.c_uint(0) in total_latency else 0
-    write_latency = total_latency[ctypes.c_uint(1)].value if ctypes.c_uint(1) in total_latency else 0
-
-    avg_read_latency = (read_latency / read_ops) / 1000 if read_ops > 0 else 0  # Convert to us
-    avg_write_latency = (write_latency / write_ops) / 1000 if write_ops > 0 else 0
-
-    # Print results
-    print(f"\nFinal IOPS: Reads = {read_ops}, Writes = {write_ops}")
-    print(f"Average Latency: Reads = {avg_read_latency:.2f} us, Writes = {avg_write_latency:.2f} us")
-
-    # Save to file
-    with open("iops_latency_results.txt", "w") as f:
-        f.write(f"Final IOPS: Reads = {read_ops}, Writes = {write_ops}\n")
-        f.write(f"Average Latency: Reads = {avg_read_latency:.2f} us, Writes = {avg_write_latency:.2f} us\n")
+    print("fio completed.")
 
 except KeyboardInterrupt:
-    print("Monitoring interrupted, stopping.")
+    print("Monitoring interrupted.")
